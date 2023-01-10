@@ -1,19 +1,18 @@
 import asyncio
-from typing import List
 import aiohttp
-import aiofiles
 import requests
+from queue import PriorityQueue
 
 
 url = "https://files.realpython.com/media/How-to-Run-A-Python-Script_Watermarked.65fe32bf5487.jpg"
-pieces = []
+# pieces = []
 
 
 def file_size(url: str) -> int:
     return int(requests.Session().head(url).headers["content-length"])
 
 
-def chop(url, threads):
+def chop(url: str, threads: int):
     size = file_size(url)
     chunk = size // threads
     chunks = []
@@ -25,19 +24,20 @@ def chop(url, threads):
     return chunks
 
 
-async def download_file(url: str, start: int, end: int) -> None:
+async def download_file(url: str, pieces: PriorityQueue, start: int, end: int) -> None:
     async with aiohttp.ClientSession(raise_for_status=True) as session:
         async with session.get(url, headers={"Range": f"bytes={start}-{end}"}) as response:
-            await pieces.append((start, await response.read()))
+            await pieces.put((start, await response.read()))
 
 
-async def manager(url: str, threads: int = 16):
+async def manager(url: str, pieces: PriorityQueue, threads: int = 16):
     chunks = chop(url, threads)
     tasks = []
 
     for j in range(len(chunks) - 1):
-        task = asyncio.ensure_future(download_file(
-            url, chunks[j], chunks[j + 1] - 1))
+        task = asyncio.ensure_future(
+            download_file(url, pieces, chunks[j], chunks[j + 1] - 1)
+        )
 
         tasks.append(task)
 
@@ -76,11 +76,9 @@ async def manager(url: str, threads: int = 16):
 
 # asyncio.run(test())
 
-asyncio.run(manager(
-    url, "/home/armin/Downloads/f/How-to-Run-A-Python-Script_Watermarked.65fe32bf5487.jpg"))
-
-pieces.sort(key=lambda item: item[0])
+pieces = PriorityQueue()
+asyncio.run(manager(url, pieces))
 
 with open("/home/armin/Downloads/f/How-to-Run-A-Python-Script_Watermarked.65fe32bf5487.jpg", "wb") as file:
-    for piece in pieces:
-        file.write(piece[1])
+    while not pieces.empty():
+        file.write(pieces.get()[1])
