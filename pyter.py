@@ -1,11 +1,8 @@
 import asyncio
-import aiohttp
+import time
 import requests
+from aiohttp import ClientSession
 from queue import PriorityQueue
-
-
-url = "https://files.realpython.com/media/How-to-Run-A-Python-Script_Watermarked.65fe32bf5487.jpg"
-# pieces = []
 
 
 def file_size(url: str) -> int:
@@ -25,7 +22,7 @@ def chop(url: str, threads: int):
 
 
 async def download_file(url: str, pieces: PriorityQueue, start: int, end: int) -> None:
-    async with aiohttp.ClientSession(raise_for_status=True) as session:
+    async with ClientSession(raise_for_status=True) as session:
         async with session.get(url, headers={"Range": f"bytes={start}-{end}"}) as response:
             await pieces.put((start, await response.read()))
 
@@ -35,7 +32,7 @@ async def manager(url: str, pieces: PriorityQueue, threads: int = 16):
     tasks = []
 
     for j in range(len(chunks) - 1):
-        task = asyncio.ensure_future(
+        task = asyncio.create_task(
             download_file(url, pieces, chunks[j], chunks[j + 1] - 1)
         )
 
@@ -44,41 +41,19 @@ async def manager(url: str, pieces: PriorityQueue, threads: int = 16):
     await asyncio.gather(*tasks, return_exceptions=True)
 
 
-# threads = 16
-# size = int(requests.head(url).headers["content-length"])
-# chunk = size // threads
-# chunks = []
-
-# for i in range(0, size - chunk, chunk):
-#     chunks.append(i)
-# chunks.append(size + 1)
-
-# pieces: List[requests.responseonse] = []
-# for j in range(len(chunks) - 1):
-#     piece = requests.get(
-#         url, headers={"Range": f"bytes={chunks[j]}-{chunks[j + 1] - 1}"}, stream=True)
-
-#     pieces.append(piece)
-
-# with open("/home/armin/Downloads/f/How-to-Run-A-Python-Script_Watermarked.65fe32bf5487.jpg", "xb") as file:
-#     for piece in pieces:
-#         for chunk in piece.iter_content(chunk_size=128):
-#             file.write(chunk)
-
-# async def test():
-#     async with aiohttp.ClientSession() as session:
-#         async with session.get(url) as resp:
-#             if resp.status == 200:
-#                 f = await aiofiles.open("/home/armin/Downloads/f/How-to-Run-A-Python-Script_Watermarked.65fe32bf5487.jpg", mode='wb')
-#                 await f.write(await resp.read())
-#                 await f.close()
-
-
-# asyncio.run(test())
-
+url = "https://cdna.p30download.ir/p30dl-audio/Vangelis.Singles_p30download.com.rar"
+# url = "https://files.realpython.com/media/What-is-the-Python-Global-Interpreter-Lock-GIL_Watermarked.0695d8c16efe.jpg"
 pieces = PriorityQueue()
-asyncio.run(manager(url, pieces))
 
-with open("/home/armin/Downloads/f/How-to-Run-A-Python-Script_Watermarked.65fe32bf5487.jpg", "wb") as file:
-    while not pieces.empty():
-        file.write(pieces.get()[1])
+s1 = time.time()
+asyncio.run(manager(url, pieces))
+print(f"threaded: {time.time() - s1}")
+
+s2 = time.time()
+requests.get(url)
+print(f"normal: {time.time() - s2}")
+
+
+# with open("/home/armin/Downloads/f/How-to-Run-A-Python-Script_Watermarked.65fe32bf5487.jpg", "wb") as file:
+#     while not pieces.empty():
+#         file.write(pieces.get()[1])
