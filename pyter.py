@@ -1,16 +1,35 @@
 import asyncio
-import time
-import requests
+from requests import Session
 from aiohttp import ClientSession
 from queue import PriorityQueue
+from typing import Coroutine
 
 
-def file_size(url: str) -> int:
-    return int(requests.Session().head(url).headers["content-length"])
+async def download_file(url: str, start: int, end: int) -> Coroutine:
+    async with ClientSession(raise_for_status=True) as session:
+        async with session.get(url, headers={"Range": f"bytes={start}-{end}"}) as response:
+            pieces.put((start, await response.read()))
 
 
-def chop(url: str, threads: int):
-    size = file_size(url)
+async def manager(url: str, chunks: list[int]) -> Coroutine:
+    tasks = []
+
+    for j in range(len(chunks) - 1):
+        task = asyncio.ensure_future(
+            download_file(url, chunks[j], chunks[j + 1] - 1)
+        )
+
+        tasks.append(task)
+
+    await asyncio.gather(*tasks)
+
+
+def _file_size(url: str) -> int:
+    return int(Session().head(url).headers["content-length"])
+
+
+def _chop(url: str, threads: int) -> list[int]:
+    size = _file_size(url)
     chunk = size // threads
     chunks = []
 
@@ -21,39 +40,16 @@ def chop(url: str, threads: int):
     return chunks
 
 
-async def download_file(url: str, pieces: PriorityQueue, start: int, end: int) -> None:
-    async with ClientSession(raise_for_status=True) as session:
-        async with session.get(url, headers={"Range": f"bytes={start}-{end}"}) as response:
-            await pieces.put((start, await response.read()))
+if __name__ == "__main__":
+    url = "https://cdna.p30download.ir/p30dl-audio/2Cellos.2011.2Cellos_p30download.com.rar"
+    # url = "https://files.realpython.com/media/What-is-the-Python-Global-Interpreter-Lock-GIL_Watermarked.0695d8c16efe.jpg"
 
+    threads = 16
+    chunks = _chop(url, threads)
+    pieces = PriorityQueue()
 
-async def manager(url: str, pieces: PriorityQueue, threads: int = 16):
-    chunks = chop(url, threads)
-    tasks = []
+    # asyncio.run(manager(url, chunks))
 
-    for j in range(len(chunks) - 1):
-        task = asyncio.create_task(
-            download_file(url, pieces, chunks[j], chunks[j + 1] - 1)
-        )
-
-        tasks.append(task)
-
-    await asyncio.gather(*tasks, return_exceptions=True)
-
-
-url = "https://cdna.p30download.ir/p30dl-audio/Vangelis.Singles_p30download.com.rar"
-# url = "https://files.realpython.com/media/What-is-the-Python-Global-Interpreter-Lock-GIL_Watermarked.0695d8c16efe.jpg"
-pieces = PriorityQueue()
-
-s1 = time.time()
-asyncio.run(manager(url, pieces))
-print(f"threaded: {time.time() - s1}")
-
-s2 = time.time()
-requests.get(url)
-print(f"normal: {time.time() - s2}")
-
-
-# with open("/home/armin/Downloads/f/How-to-Run-A-Python-Script_Watermarked.65fe32bf5487.jpg", "wb") as file:
-#     while not pieces.empty():
-#         file.write(pieces.get()[1])
+    # with open("/home/armin/Downloads/f/How-to-Run-A-Python-Script_Watermarked.65fe32bf5487.jpg", "wb") as file:
+    #     while not pieces.empty():
+    #         file.write(pieces.get()[1])
