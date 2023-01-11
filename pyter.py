@@ -1,14 +1,20 @@
+import requests
 import asyncio
+from argparse import ArgumentParser, Namespace
+from pathlib import Path
+from urllib.parse import urlparse
 from requests import Session
 from aiohttp import ClientSession
 from queue import PriorityQueue
 from typing import Coroutine
+from tqdm.asyncio import trange
 
 
 async def download_file(url: str, start: int, end: int) -> Coroutine:
     async with ClientSession(raise_for_status=True) as session:
         async with session.get(url, headers={"Range": f"bytes={start}-{end}"}) as response:
-            pieces.put((start, await response.read()))
+            async for chunk_size in trange((end - start) // 1024, colour="#77C3EC", unit="kB"):
+                pieces.put((start, await response.read()))
 
 
 async def manager(url: str, chunks: list[int]) -> Coroutine:
@@ -28,9 +34,8 @@ def _file_size(url: str) -> int:
     return int(Session().head(url).headers["content-length"])
 
 
-def _chop(url: str, threads: int) -> list[int]:
-    size = _file_size(url)
-    chunk = size // threads
+def _chop(size: int, threads: int) -> list[int]:
+    chunk = size // threads if size // threads != 0 else size
     chunks = []
 
     for i in range(0, size - chunk, chunk):
@@ -40,16 +45,57 @@ def _chop(url: str, threads: int) -> list[int]:
     return chunks
 
 
+def _getArgs() -> Namespace:
+    parser = ArgumentParser(
+        prog="Pyter",
+        description="Multi-Threaded Mini Downloader.",
+        epilog=""
+    )
+
+    parser.add_argument("url",
+                        help="url of a file.")
+
+    parser.add_argument("-t", "--threads",
+                        help="number of threads. (default=16)")
+
+    parser.add_argument("-td", "--target-directory",
+                        help="save downloaded file to this directory.")
+
+    return parser.parse_args()
+
+
 if __name__ == "__main__":
-    url = "https://cdna.p30download.ir/p30dl-audio/2Cellos.2011.2Cellos_p30download.com.rar"
-    # url = "https://files.realpython.com/media/What-is-the-Python-Global-Interpreter-Lock-GIL_Watermarked.0695d8c16efe.jpg"
+    DEFAULT_THREADS = 16
 
-    threads = 16
-    chunks = _chop(url, threads)
-    pieces = PriorityQueue()
+    args = _getArgs()
 
-    # asyncio.run(manager(url, chunks))
+    url = args.url
 
-    # with open("/home/armin/Downloads/f/How-to-Run-A-Python-Script_Watermarked.65fe32bf5487.jpg", "wb") as file:
-    #     while not pieces.empty():
-    #         file.write(pieces.get()[1])
+    size = _file_size(url)
+
+    tdir = Path(args.target_directory) if args.target_directory \
+        else Path("/home/armin/Downloads/pyter")
+
+    if not tdir.exists():
+        tdir.mkdir()
+
+    if size != 0:
+        threads = args.threads if args.threads else DEFAULT_THREADS
+
+        chunks = _chop(size, threads)
+
+        pieces = PriorityQueue()
+
+        asyncio.run(manager(url, chunks))
+
+        with open(tdir / Path(url).name, "wb") as file:
+            while not pieces.empty():
+                file.write(pieces.get()[1])
+
+    else:
+        result = requests.get(url)
+
+        with open(tdir / Path(url).name, "wb") as file:
+            file.write(result.content)
+
+    print(f"\nFile saved to: {tdir}")
