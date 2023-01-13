@@ -3,6 +3,7 @@ import asyncio
 import aiohttp
 import sys
 import tqdm
+import os
 from argparse import ArgumentParser, Namespace
 from pathlib import Path
 from queue import PriorityQueue
@@ -26,7 +27,7 @@ async def manager(url: str, chunks: list[int]) -> Coroutine:
 
         tasks.append(task)
 
-    await tqdm_asyncio.gather(*tasks, colour=TQDM_COLOR, unit="kB")
+    await tqdm_asyncio.gather(*tasks, colour=LIGHT_BLUE, unit="kB")
 
 
 def _file_size(session: requests.Session, url: str) -> int:
@@ -57,7 +58,7 @@ def _getArgs() -> Namespace:
     )
 
     parser.add_argument("url",
-                        help="url of a file.")
+                        help="URL of a file.")
 
     parser.add_argument("-t", "--threads",
                         help="number of threads. (default=16)")
@@ -73,9 +74,24 @@ def _test_connection(session: requests.Session, url: str) -> None:
         raise requests.exceptions.ConnectionError()
 
 
+def _set_default_tdir() -> Path:
+    platform = sys.platform
+    user = os.getlogin()
+
+    if platform == "linux":     # Linux
+        return Path(f"/home/{user}/Downloads/pyter")
+
+    elif platform == "win32":   # Windows
+        return Path(f"C:\\Users\\{user}\\Downloads\\pyter")
+
+    elif platform == "darwin":  # Mac OS X
+        return Path(f"/Users/{user}/Downloads/pyter")
+
+
 if __name__ == "__main__":
     DEFAULT_THREADS = 16
-    TQDM_COLOR = "#77C3EC"
+    DEFAULT_TDIR = _set_default_tdir()
+    LIGHT_BLUE = "#77C3EC"
 
     args = _getArgs()
 
@@ -91,8 +107,10 @@ if __name__ == "__main__":
 
         size = _file_size(session, url)
 
+        size_in_kb = size // 1024
+
     tdir = Path(args.target_directory) if args.target_directory \
-        else Path("/home/armin/Downloads/pyter")
+        else DEFAULT_TDIR
 
     if not tdir.exists():
         tdir.mkdir()
@@ -104,12 +122,11 @@ if __name__ == "__main__":
 
         pieces = PriorityQueue()
 
-        print("\nDownloadig...")
+        print("Downloadig...")
         asyncio.run(manager(url, chunks))
 
-        print(f"\nSaving file to {tdir}...")
-        size_in_kb = size // 1024
-        for chunk_size in tqdm.trange(size_in_kb, colour=TQDM_COLOR, unit="kB"):
+        print(f"\nSaving file to {tdir}")
+        for chunk_size in tqdm.trange(size_in_kb, colour=LIGHT_BLUE, unit="kB"):
             with open(tdir / Path(url).name, "wb") as file:
                 while not pieces.empty():
                     file.write(pieces.get()[1])
