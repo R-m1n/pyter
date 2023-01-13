@@ -1,12 +1,12 @@
 import requests
 import asyncio
 import aiohttp
-import requests
+import sys
+import tqdm
 from argparse import ArgumentParser, Namespace
 from pathlib import Path
 from queue import PriorityQueue
 from typing import Coroutine
-from tqdm import trange
 from tqdm.asyncio import tqdm_asyncio
 
 
@@ -17,7 +17,7 @@ async def download_file(url: str, start: int, end: int) -> Coroutine:
 
 
 async def manager(url: str, chunks: list[int]) -> Coroutine:
-    tasks = [asyncio.ensure_future(asyncio.sleep(1))]
+    tasks = []
 
     for j in range(len(chunks) - 1):
         task = asyncio.ensure_future(
@@ -26,7 +26,7 @@ async def manager(url: str, chunks: list[int]) -> Coroutine:
 
         tasks.append(task)
 
-    await tqdm_asyncio.gather(*tasks, timeout=100, colour="#77C3EC", unit="kB")
+    await tqdm_asyncio.gather(*tasks, colour=TQDM_COLOR, unit="kB")
 
 
 def _file_size(session: requests.Session, url: str) -> int:
@@ -75,13 +75,19 @@ def _test_connection(session: requests.Session, url: str) -> None:
 
 if __name__ == "__main__":
     DEFAULT_THREADS = 16
+    TQDM_COLOR = "#77C3EC"
 
     args = _getArgs()
 
     url = args.url
 
     with requests.Session() as session:
-        _test_connection(session, url)
+        try:
+            _test_connection(session, url)
+
+        except requests.exceptions.ConnectionError:
+            print("Connection failed!, Please try another time.")
+            sys.exit()
 
         size = _file_size(session, url)
 
@@ -98,11 +104,12 @@ if __name__ == "__main__":
 
         pieces = PriorityQueue()
 
-        print("\nDownloadig: ")
+        print("\nDownloadig...")
         asyncio.run(manager(url, chunks))
 
         print(f"\nSaving file to {tdir}...")
-        for chunk_size in trange(size // 1024, colour="#77C3EC", unit="kB"):
+        size_in_kb = size // 1024
+        for chunk_size in tqdm.trange(size_in_kb, colour=TQDM_COLOR, unit="kB"):
             with open(tdir / Path(url).name, "wb") as file:
                 while not pieces.empty():
                     file.write(pieces.get()[1])
