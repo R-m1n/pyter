@@ -1,9 +1,9 @@
 import requests
 import asyncio
+import aiohttp
+import requests
 from argparse import ArgumentParser, Namespace
 from pathlib import Path
-from requests import Session
-from aiohttp import ClientSession
 from queue import PriorityQueue
 from typing import Coroutine
 from tqdm import trange
@@ -11,7 +11,7 @@ from tqdm.asyncio import tqdm_asyncio
 
 
 async def download_file(url: str, start: int, end: int) -> Coroutine:
-    async with ClientSession(raise_for_status=True) as session:
+    async with aiohttp.ClientSession(raise_for_status=True) as session:
         async with session.get(url, headers={"Range": f"bytes={start}-{end}"}) as response:
             pieces.put((start, await response.read()))
 
@@ -29,10 +29,8 @@ async def manager(url: str, chunks: list[int]) -> Coroutine:
     await tqdm_asyncio.gather(*tasks, timeout=100, colour="#77C3EC", unit="kB")
 
 
-def _file_size(url: str) -> int:
-    response = Session().head(url)
-
-    _test_connection(response)
+def _file_size(session: requests.Session, url: str) -> int:
+    response = session.head(url)
 
     if "content-length" in response.headers:
         return int(response.headers["content-length"])
@@ -70,8 +68,8 @@ def _getArgs() -> Namespace:
     return parser.parse_args()
 
 
-def _test_connection(response: requests.Response) -> None:
-    if response.status_code == requests.codes.ok:
+def _test_connection(session: requests.Session, url: str) -> None:
+    if session.head(url).status_code != requests.codes.ok:
         raise requests.exceptions.ConnectionError()
 
 
@@ -82,7 +80,10 @@ if __name__ == "__main__":
 
     url = args.url
 
-    size = _file_size(url)
+    with requests.Session() as session:
+        _test_connection(session, url)
+
+        size = _file_size(session, url)
 
     tdir = Path(args.target_directory) if args.target_directory \
         else Path("/home/armin/Downloads/pyter")
@@ -91,16 +92,16 @@ if __name__ == "__main__":
         tdir.mkdir()
 
     if size != 0:
-        threads = args.threads - 1 if args.threads else DEFAULT_THREADS - 1
+        threads = args.threads if args.threads else DEFAULT_THREADS
 
         chunks = _chop(size, threads)
 
         pieces = PriorityQueue()
 
-        print("\n")
+        print("\nDownloadig: ")
         asyncio.run(manager(url, chunks))
 
-        print("\n")
+        print(f"\nSaving file to {tdir}...")
         for chunk_size in trange(size // 1024, colour="#77C3EC", unit="kB"):
             with open(tdir / Path(url).name, "wb") as file:
                 while not pieces.empty():
@@ -111,5 +112,3 @@ if __name__ == "__main__":
 
         with open(tdir / Path(url).name, "wb") as file:
             file.write(result.content)
-
-    print(f"\nFile saved to: {tdir}")
